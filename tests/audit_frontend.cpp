@@ -27,15 +27,15 @@ void auditMacroExpansionAndExpressionGrammar() {
 #define VALUE 0
 #endif
 int result;
-int main(){ result=VALUE; halt(); }
+int main(){ result=VALUE; _halt(); }
 )", {{"result", 32}});
 
   expectFrontendGap("comma operator in expressions", R"(
-int main(){ int x; x=(1,2); halt(); return x; }
+int main(){ int x; x=(1,2); _halt(); return x; }
 )");
   expectFrontendGap("self-referential macro suppression", R"(
 #define SELF SELF
-int main(){ int x=SELF; halt(); return x; }
+int main(){ int x=SELF; _halt(); return x; }
 )");
 }
 
@@ -45,14 +45,14 @@ void auditPrototypeConsistencyAndScopes() {
   auto im = build(R"(
 int f(uint x);
 int f(int x){ return x; }
-int main(){ halt(); return f(1); }
+int main(){ _halt(); return f(1); }
 )");
   check(!im.bytes.empty(), "mismatched prototype probe did not compile");
   std::cout << "[gap confirmed] mismatched function prototype is ignored\n";
 
   runCase("nested block shadowing and precedence", R"(
 int result;
-int main(){ int x=3; { int x=9; result=x; } result += x + 2*3 << 1; halt(); }
+int main(){ int x=3; { int x=9; result=x; } result += x + 2*3 << 1; _halt(); }
 )", {{"result", 27}});
 }
 } // namespace

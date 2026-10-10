@@ -303,7 +303,7 @@ void runCase(const std::string &name, const std::string &src,
 }
 void focusedTests() {
   {
-    Image im = build("int main(){ _putchar('O'); _putchar('K'); halt(); }");
+    Image im = build("int main(){ _putchar('O'); _putchar('K'); _halt(); }");
     Machine m;
     m.run(im);
     check(m.output == "OK", "_putchar output stream");
@@ -312,12 +312,12 @@ void focusedTests() {
   }
   runCase("signed division and remainder", R"(
 int quotient, remainder, result;
-int main(){ int n=-17; quotient=n/5; remainder=n%5; result=quotient*10+remainder; halt(); }
+int main(){ int n=-17; quotient=n/5; remainder=n%5; result=quotient*10+remainder; _halt(); }
 )",
           {{"quotient", 253}, {"remainder", 254}, {"result", 224}});
   runCase("signed and unsigned shifts", R"(
 int signed_result; uint unsigned_result;
-int main(){ int s=-8; uint u=128; signed_result=s>>1; unsigned_result=u>>1; halt(); }
+int main(){ int s=-8; uint u=128; signed_result=s>>1; unsigned_result=u>>1; _halt(); }
 )",
           {{"signed_result", 252}, {"unsigned_result", 64}});
   runCase("comparisons and 16-bit pointers", R"(
@@ -325,21 +325,21 @@ int flags, signed_equalities, unsigned_flags; int data[260];
 int main(){ int a=-2,b=3; int *p=&data[0], *q=&data[256];
  flags=(a<b)+2*(a<=b)+4*(b>a)+8*(b>=a)+16*(p!=q)+32*(p==&data[0])+
        64*(q>p)+128*(p<q); signed_equalities=(a!=b)+2*(a==a);
- uint u=250,v=2; unsigned_flags=(u>v)+2*(u>=v)+4*(v<u)+8*(v<=u)+16*(u!=v)+32*(u==250); halt(); }
+ uint u=250,v=2; unsigned_flags=(u>v)+2*(u>=v)+4*(v<u)+8*(v<=u)+16*(u!=v)+32*(u==250); _halt(); }
 )",
           {{"flags", 255}, {"signed_equalities", 3}, {"unsigned_flags", 63}});
   runCase("short-circuit side effects", R"(
 int calls, result;
 int bump(){ calls++; return 1; }
 int main(){ if(0 && bump()) result=99; if(1 || bump()) result+=1;
- if(1 && bump()) result+=2; if(0 || bump()) result+=4; halt(); }
+ if(1 && bump()) result+=2; if(0 || bump()) result+=4; _halt(); }
 )",
           {{"calls", 2}, {"result", 7}});
   runCase("nested do-while break and continue", R"(
 int result;
 int main(){ int i=0,j=0; do { i++; if(i==2) continue; j=0;
  do { j++; if(j==2) break; result++; } while(j<4); if(i==4) break;
- result+=10; } while(i<9); halt(); }
+ result+=10; } while(i<9); _halt(); }
 )",
           {{"result", 23}});
   runCase("pointer and struct strides with postincrement", R"(
@@ -348,14 +348,14 @@ int result;
 int main(){ struct Item items[3]={{1,4},{2,5},{3,6}}; struct Item *p=items;
  result=p++->a; result+=p->b; result+=(p+1)->a; result+=items[2].b;
  p+=1; p--; result+=p->a; int nums[3]={7,8,9}; int *n=nums;
- result+=*n++; n+=1; result+=*n; halt(); }
+ result+=*n++; n+=1; result+=*n; _halt(); }
 )",
           {{"result", 33}});
   runCase("nested recursive calls preserve expression temporaries", R"(
 int result;
 int fib(int n){ if(n<2)return n; return fib(n-1)+fib(n-2); }
 int mix(int a,int b){return a*3+b;}
-int main(){ result=mix(fib(6),mix(2,fib(4))); halt(); }
+int main(){ result=mix(fib(6),mix(2,fib(4))); _halt(); }
 )",
           {{"result", 33}});
   runCase("pointer returns, null compare, sizeof does not evaluate", R"(
@@ -363,30 +363,30 @@ int result, calls, data[2];
 int bump(){calls++;return 7;}
 int *identity(int *p){return p;}
 int main(){ int *p=identity(&data[1]); result=(p!=0)+2*(p==&data[1]);
- result+=sizeof(bump())+sizeof(data); halt(); }
+ result+=sizeof(bump())+sizeof(data); _halt(); }
 )",
           {{"result", 6}, {"calls", 0}});
   runCase("nested partial multidimensional array initialization", R"(
 int result;
 int main(){ int a[2][2]={{1},{2}};
- result=a[0][0]+2*a[0][1]+4*a[1][0]+8*a[1][1]+sizeof(int[2+3]); halt(); }
+ result=a[0][0]+2*a[0][1]+4*a[1][0]+8*a[1][1]+sizeof(int[2+3]); _halt(); }
 )",
           {{"result", 14}});
   runCase("high byte character and adjacent strings", R"(
 char joined[]="A" "B"; int result, signed_char;
-int main(){ signed_char=('\x80'<0); result=joined[0]+joined[1]+joined[2]; halt(); }
+int main(){ signed_char=('\x80'<0); result=joined[0]+joined[1]+joined[2]; _halt(); }
 )",
           {{"result", 131}, {"signed_char", 1}});
   runCase("array of pointers", R"(
 int result;
 int main(){ int x=5,y=7; int *ptrs[2]; ptrs[0]=&x; ptrs[1]=&y;
- result=*ptrs[0]+*ptrs[1]; halt(); }
+ result=*ptrs[0]+*ptrs[1]; _halt(); }
 )",
           {{"result", 12}});
   runCase("nested partial struct field array initialization", R"(
 struct Grid { int cell[2][2]; int tail; }; int result;
 int main(){ struct Grid g={{{3},{4}},5};
- result=g.cell[0][0]+2*g.cell[0][1]+4*g.cell[1][0]+8*g.cell[1][1]+g.tail; halt(); }
+ result=g.cell[0][0]+2*g.cell[0][1]+4*g.cell[1][0]+8*g.cell[1][1]+g.tail; _halt(); }
 )",
           {{"result", 24}});
   // Alternate origin forces a 16-bit start and validates the assembler's
@@ -394,23 +394,23 @@ int main(){ struct Grid g={{{3},{4}},5};
   runCase("nonzero origin", R"(
 origin 0x1234;
 int result;
-int main(){ result=73; halt(); }
+int main(){ result=73; _halt(); }
 )",
           {{"result", 73}});
 }
 void failureTests() {
   const std::vector<std::string> bad = {
-      "int main( { halt(); }",                   // malformed declaration
-      "int main(){ missing=1; halt(); }",        // unknown identifier
-      "int main(){ int x; x=\"bad\"; halt(); }", // incompatible types
-      "struct Node { struct Node next; }; int main(){halt();}", // by-value self
+      "int main( { _halt(); }",                   // malformed declaration
+      "int main(){ missing=1; _halt(); }",        // unknown identifier
+      "int main(){ int x; x=\"bad\"; _halt(); }", // incompatible types
+      "struct Node { struct Node next; }; int main(){_halt();}", // by-value self
                                                                 // recursion
-      "int huge[256][256]; int main(){halt();}", // exceeds addressable object
+      "int huge[256][256]; int main(){_halt();}", // exceeds addressable object
                                                  // size
-      "int (*ptrs)[2]; int main(){halt();}",     // unsupported pointer-to-array
+      "int (*ptrs)[2]; int main(){_halt();}",     // unsupported pointer-to-array
                                                  // declarator
-      "struct Missing object; int main(){halt();}",        // incomplete object
-      "int f(int x){int x;return 0;} int main(){halt();}", // parameter
+      "struct Missing object; int main(){_halt();}",        // incomplete object
+      "int f(int x){int x;return 0;} int main(){_halt();}", // parameter
                                                            // redeclaration
   };
   for (size_t i = 0; i < bad.size(); ++i) {
@@ -472,7 +472,7 @@ int main() {
   if (flow_result == 7) flow_result += 1; else flow_result = 99;
   literal_result = 'A' + ("B"[0] - 'A');
   goto done; flow_result = 99; done:
-  halt();
+  _halt();
 }
 )";
     Image im = build(program);

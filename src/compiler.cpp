@@ -542,7 +542,7 @@ class Generator {
       auto n = e->args[0]->text;
       if (n == "_putchar")
         return scalar(Type::Int);
-      if (n == "halt")
+      if (n == "_halt")
         return scalar(Type::Void);
       auto f = frames.find(n);
       if (f == frames.end())
@@ -779,9 +779,9 @@ class Generator {
     case Expr::Call: {
       auto t = typeOf(e);
       auto n = e->args[0]->text;
-      if (n == "halt") {
+      if (n == "_halt") {
         if (e->args.size() != 1)
-          fail("halt expects no arguments");
+          fail("_halt expects no arguments");
         emit("sdw");
         return {t, {}};
       }
@@ -1028,7 +1028,7 @@ public:
       fail("origin outside 16-bit address space");
     int returnSize = 1;
     for (const auto &f : unit.functions) {
-      if (frames.count(f.name) || f.name == "_putchar" || f.name == "halt")
+      if (frames.count(f.name) || f.name == "_putchar" || f.name == "_halt")
         fail("duplicate or reserved function '" + f.name + "'");
       frames[f.name].fn = &f;
       returnSize = std::max(returnSize, f.result->size());
@@ -1070,7 +1070,7 @@ public:
       initializer(globals.at(d.name), d);
     CallSite main;
     main.fn = "main";
-    main.label = fresh("halt");
+    main.label = fresh("_halt");
     main.result = {scalar(Type::Void), {}};
     calls.push_back(main);
     emit("@" + std::to_string(calls.size() - 1));
