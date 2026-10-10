@@ -1,6 +1,6 @@
 int main(void) {
-    putchar('H');
-    putchar('i');
-    putchar('\n');
+    _putchar('H');
+    _putchar('i');
+    _putchar('\n');
     return 0;
 }

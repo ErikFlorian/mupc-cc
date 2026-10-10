@@ -540,7 +540,7 @@ class Generator {
       if (e->args[0]->kind != Expr::Name)
         fail("function pointers are not supported");
       auto n = e->args[0]->text;
-      if (n == "putchar")
+      if (n == "_putchar")
         return scalar(Type::Int);
       if (n == "halt")
         return scalar(Type::Void);
@@ -785,9 +785,9 @@ class Generator {
         emit("sdw");
         return {t, {}};
       }
-      if (n == "putchar") {
+      if (n == "_putchar") {
         if (e->args.size() != 2)
-          fail("putchar expects one argument");
+          fail("_putchar expects one argument");
         auto v = convert(eval(e->args[1]), scalar(Type::Int));
         load(v.cells[0]);
         emit("out a");
@@ -1028,7 +1028,7 @@ public:
       fail("origin outside 16-bit address space");
     int returnSize = 1;
     for (const auto &f : unit.functions) {
-      if (frames.count(f.name) || f.name == "putchar" || f.name == "halt")
+      if (frames.count(f.name) || f.name == "_putchar" || f.name == "halt")
         fail("duplicate or reserved function '" + f.name + "'");
       frames[f.name].fn = &f;
       returnSize = std::max(returnSize, f.result->size());

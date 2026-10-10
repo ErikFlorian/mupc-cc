@@ -16,9 +16,9 @@ int main(void) {
     struct Point origin = { 65, 66 };
     struct Point *p = &origin;
 
-    putchar(p->x);
-    putchar(p->y);
-    putchar(sum(values, 3) / 10 + '0');
-    putchar('\n');
+    _putchar(p->x);
+    _putchar(p->y);
+    _putchar(sum(values, 3) / 10 + '0');
+    _putchar('\n');
     return 0;
 }

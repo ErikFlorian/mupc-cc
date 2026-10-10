@@ -8,7 +8,7 @@ uint factorial(uint n) {
 int main(void) {
     // The emulator displays only explicit output, not a function's return value.
     uint answer = factorial(3);
-    putchar(answer + '0');
-    putchar('\n');
+    _putchar(answer + '0');
+    _putchar('\n');
     return 0;
 }

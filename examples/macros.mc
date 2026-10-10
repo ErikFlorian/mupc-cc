@@ -4,8 +4,8 @@
 #ifdef ENABLE_MESSAGE
 int main(void) {
     uint x = TWICE(32);
-    putchar(x);
-    putchar('\n');
+    _putchar(x);
+    _putchar('\n');
     return 0;
 }
 #else

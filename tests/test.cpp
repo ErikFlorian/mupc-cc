@@ -303,10 +303,10 @@ void runCase(const std::string &name, const std::string &src,
 }
 void focusedTests() {
   {
-    Image im = build("int main(){ putchar('O'); putchar('K'); halt(); }");
+    Image im = build("int main(){ _putchar('O'); _putchar('K'); halt(); }");
     Machine m;
     m.run(im);
-    check(m.output == "OK", "putchar output stream");
+    check(m.output == "OK", "_putchar output stream");
     emitImage("output_capture", im, {}, "OK");
     std::cout << "[ok] output capture\n";
   }
