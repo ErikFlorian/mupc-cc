@@ -136,4 +136,31 @@ Inline assembly is raw. It can change all registers, the `c:d` address word, sta
 
 ## Built-ins
 
-`_putchar(value)` emits `out` for the low byte of its argument. `_halt()` emits the CPU shutdown operation. These are the compiler’s built-in intrinsics and need no headers. There is no general I/O library, allocator, or linker-provided runtime. Local objects and compiler temporaries have fixed RAM slots. Their storage is initialized from the image once; an uninitialized local is not re-zeroed on each function entry. A recursive re-entry into the same function reuses the same local addresses, so a pointer to an automatic object can observe the newer activation while recursion is in progress. The hardware stack saves frame bytes during calls, but it does not make those object addresses distinct. Deep recursion is limited by the emulator stack capacity.
+`_putchar(value)` emits `out` for the low byte of its argument. `_halt()` emits the CPU shutdown operation. `_inst(opcode, a, b)` emits an instruction byte directly and is useful for a single operation that would be verbose as an `_asm` block:
+
+```c
+uint result;
+int main(void) {
+    uint left = 40, right = 2;
+    _inst("add", &left, &right); // loads a/b, adds, and stores a to left
+    result = left;
+    _halt();
+}
+```
+
+`opcode` is either an assembler mnemonic string or a numeric primary opcode in `0..15`. For a two-register mnemonic, numeric `a` and `b` operands are register selectors `0..3` (`a=0`, `b=1`, `c=2`, `d=3`). A pointer operand must point to a one-byte integer: a pointer in argument `a` loads that value into register `a` before the instruction and writes register `a` back afterward; a pointer in argument `b` loads into register `b` and is input-only. The compiler preserves the other register and `c:d` state around these loads and stores. Pointer arguments are accepted as pointer expressions, including `&variable` and pointer variables.
+
+For single-register mnemonics such as `inc`, the first operand selects the register, or binds it to `a` when it is a pointer. The second operand is zero for instructions without a payload; `ldi`, `adi`, `in`, and `out` use it as the following byte (for an immediate or I/O channel). `jmp`, `sdw`, and `rbt` require both operands to be zero. With a numeric opcode, `a` and `b` are raw two-bit instruction fields; the first field cannot be a pointer for grouped opcodes because it selects the sub-operation. The raw opcode mnemonics `idc`, `sjm`, `mst`, and `msc` also treat `a` as the sub-operation selector. The numeric form emits one byte, so use a concrete mnemonic string for instructions that need a following data byte. The raw opcode mnemonics `io` and `imm` also need a data byte and are rejected; use `in`/`out` or `ldi`/`adi`. `_inst` arguments must be literals or pointers, and pointer targets must be one-byte integers.
+
+`_sub_inst(opcode, a)` emits a grouped sub-operation and requires `a` to point to a one-byte integer. The function loads that byte into register `a`, uses it as the sub-operation's register operand, and writes register `a` back through the pointer afterward:
+
+```c
+uint count = 41;
+_sub_inst("inc", &count); // count becomes 42
+```
+
+The string form accepts these register-taking sub-operation mnemonics: `inc`, `dec`, `adc`, `sbc`, `jz`, `jnz`, `jc`, `rdm`, `wrm`, `pop`, `push`, `in`, `out`, `ldo`, `rnd`, `ldi`, and `adi`. `jmp`, `sdw`, and `rbt` do not have a register operand and are rejected. `rdm` and `wrm` use the CPU's current `c:d` address word; `push` and `pop` use the hardware stack. `in`, `out`, `ldi`, and `adi` consume a following byte, so `_sub_inst` appends a zero channel or immediate byte for them.
+
+The numeric form accepts a grouped primary opcode from `0..15` (selecting sub-operation zero), a packed opcode selector from `16..63` (primary opcode multiplied by four, plus the sub-operation number), or an instruction-byte prefix from `64..255` whose low two register bits are zero. For example, `7` selects `inc`, `29` selects `dec`, and `0x74` also selects `dec`. The register operand is always `a`; the pointer argument and numeric opcode cannot override it. Unknown, ungrouped, or no-register operations are rejected. The pointer expression is evaluated while preserving the registers and `c:d` state the sub-operation sees.
+
+These intrinsics need no headers. There is no general I/O library, allocator, or linker-provided runtime. Local objects and compiler temporaries have fixed RAM slots. Their storage is initialized from the image once; an uninitialized local is not re-zeroed on each function entry. A recursive re-entry into the same function reuses the same local addresses, so a pointer to an automatic object can observe the newer activation while recursion is in progress. The hardware stack saves frame bytes during calls, but it does not make those object addresses distinct. Deep recursion is limited by the emulator stack capacity.

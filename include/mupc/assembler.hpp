@@ -10,4 +10,8 @@ struct Image {
   int loadAddress = 0;
 };
 Image assemble(const std::string &source);
+std::uint8_t encodeInstruction(const std::string &mnemonic, unsigned first,
+                               unsigned second);
+std::uint8_t encodeSubInstruction(const std::string &mnemonic,
+                                  unsigned reg);
 } // namespace mupc

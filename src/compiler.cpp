@@ -546,6 +546,10 @@ class Generator {
         return scalar(Type::Int);
       if (n == "_halt")
         return scalar(Type::Void);
+      if (n == "_inst")
+        return scalar(Type::Void);
+      if (n == "_sub_inst")
+        return scalar(Type::Void);
       auto f = frames.find(n);
       if (f == frames.end())
         fail("unknown function '" + n + "'");
@@ -781,6 +785,14 @@ class Generator {
     case Expr::Call: {
       auto t = typeOf(e);
       auto n = e->args[0]->text;
+      if (n == "_inst") {
+        instruction(e);
+        return {t, {}};
+      }
+      if (n == "_sub_inst") {
+        subInstruction(e);
+        return {t, {}};
+      }
       if (n == "_halt") {
         if (e->args.size() != 1)
           fail("_halt expects no arguments");
@@ -888,6 +900,329 @@ class Generator {
     auto v = allocate(d.type);
     scopes.back()[d.name] = v;
     initializer(v, d);
+  }
+  bool immediateInteger(Ex e, long long &value) {
+    if (e->kind == Expr::Literal) {
+      value = e->value;
+      return true;
+    }
+    if (e->kind == Expr::Cast && e->args.size() == 1)
+      return immediateInteger(e->args[0], value);
+    if (e->kind == Expr::Unary && e->args.size() == 1) {
+      long long operand;
+      if (!immediateInteger(e->args[0], operand))
+        return false;
+      if (e->text == "+")
+        value = operand;
+      else if (e->text == "-")
+        value = -operand;
+      else if (e->text == "~")
+        value = ~operand;
+      else
+        return false;
+      return true;
+    }
+    return false;
+  }
+  void instruction(Ex call) {
+    if (call->args.size() != 4)
+      fail("_inst expects an opcode and two operands");
+
+    struct Operand {
+      bool isPointer = false;
+      int immediate = 0;
+      Value address;
+    };
+    auto parseOperand = [&](Ex expression) {
+      Operand operand;
+      Ty type = decay(typeOf(expression));
+      if (type->kind == Type::Pointer) {
+        if (type->base->size() != 1 || !numeric(type->base))
+          fail("_inst pointers must point to one-byte integers");
+        operand.isPointer = true;
+        return operand;
+      }
+      long long value;
+      if (!immediateInteger(expression, value))
+        fail("_inst operands must be numeric literals or pointers");
+      if (value < 0 || value > 255)
+        fail("_inst numeric operands must be in the range 0..255");
+      operand.immediate = static_cast<int>(value);
+      return operand;
+    };
+
+    Ex opcodeExpression = call->args[1];
+    const bool named = opcodeExpression->kind == Expr::StringLiteral;
+    std::string mnemonic;
+    int opcode = -1;
+    if (named) {
+      mnemonic = opcodeExpression->text;
+      std::transform(mnemonic.begin(), mnemonic.end(), mnemonic.begin(),
+                     [](unsigned char c) {
+                       return static_cast<char>(std::tolower(c));
+                     });
+    } else {
+      long long value;
+      if (!immediateInteger(opcodeExpression, value) || value < 0 ||
+          value > 15)
+        fail("_inst opcode must be a mnemonic string or a number in 0..15");
+      opcode = static_cast<int>(value);
+    }
+
+    Operand a = parseOperand(call->args[2]);
+    Operand b = parseOperand(call->args[3]);
+    bool grouped = false;
+    bool oneRegister = false;
+    bool noRegister = false;
+    bool payload = false;
+    if (named) {
+      static const std::set<std::string> oneRegisterMnemonics = {
+          "inc", "dec", "adc", "sbc", "jz",  "jnz", "jc",  "rdm",
+          "wrm", "pop", "push", "in",  "out", "ldo", "rnd", "ldi",
+          "adi"};
+      static const std::set<std::string> noRegisterMnemonics = {"jmp", "sdw",
+                                                               "rbt"};
+      oneRegister = oneRegisterMnemonics.count(mnemonic) != 0;
+      noRegister = noRegisterMnemonics.count(mnemonic) != 0;
+      grouped = oneRegister || noRegister;
+      payload = mnemonic == "in" || mnemonic == "out" || mnemonic == "ldi" ||
+                mnemonic == "adi";
+    }
+
+    unsigned first = 0, second = 0;
+    int bytePayload = -1;
+    if (named && noRegister) {
+      if (a.isPointer || b.isPointer || a.immediate != 0 || b.immediate != 0)
+        fail("_inst 'jmp', 'sdw', and 'rbt' require zero operands");
+    } else if (named && oneRegister) {
+      if (b.isPointer)
+        fail("_inst single-register mnemonics do not accept a pointer in b");
+      if (a.immediate > 3)
+        fail("_inst register selectors must be in the range 0..3");
+      if (payload) {
+        bytePayload = b.immediate;
+      } else if (b.immediate != 0) {
+        fail("_inst second operand is only used for immediate instructions");
+      }
+      // Assembler mnemonics with one register use a as the register selector.
+      // A pointer binds it to register a; the mnemonic selects the sub-operation.
+      second = a.isPointer ? 0u : static_cast<unsigned>(a.immediate);
+    } else if (named && (mnemonic == "io" || mnemonic == "imm")) {
+      fail("_inst 'io' and 'imm' need a following data byte; use a concrete "
+           "mnemonic such as 'out' or 'ldi'");
+    } else if (named && (mnemonic == "idc" || mnemonic == "sjm" ||
+                         mnemonic == "mst" || mnemonic == "msc")) {
+      if (a.isPointer)
+        fail("_inst a pointer cannot occupy a grouped opcode selector field");
+      if (a.immediate > 3 || (!b.isPointer && b.immediate > 3))
+        fail("_inst instruction fields must be in the range 0..3");
+      first = static_cast<unsigned>(a.immediate);
+      second = b.isPointer ? 1u : static_cast<unsigned>(b.immediate);
+    } else if (named) {
+      if (a.isPointer)
+        first = 0;
+      else {
+        if (a.immediate > 3)
+          fail("_inst register selectors must be in the range 0..3");
+        first = static_cast<unsigned>(a.immediate);
+      }
+      if (b.isPointer)
+        second = 1;
+      else {
+        if (b.immediate > 3)
+          fail("_inst register selectors must be in the range 0..3");
+        second = static_cast<unsigned>(b.immediate);
+      }
+    } else {
+      grouped = opcode == 7 || opcode == 8 || opcode == 12 || opcode == 13 ||
+                opcode == 14 || opcode == 15;
+      if (opcode == 13 || opcode == 15)
+        fail("_inst numeric opcode form cannot supply the required data byte; "
+             "use its mnemonic string");
+      if (a.isPointer && grouped)
+        fail("_inst a pointer cannot occupy a grouped opcode selector field");
+      if (a.isPointer)
+        first = 0;
+      else {
+        if (a.immediate > 3)
+          fail("_inst instruction fields must be in the range 0..3");
+        first = static_cast<unsigned>(a.immediate);
+      }
+      if (b.isPointer)
+        second = 1;
+      else {
+        if (b.immediate > 3)
+          fail("_inst instruction fields must be in the range 0..3");
+        second = static_cast<unsigned>(b.immediate);
+      }
+    }
+
+    // Evaluate pointers while preserving the state that the instruction sees.
+    if (a.isPointer || b.isPointer) {
+      emit("push a");
+      emit("push b");
+      emit("push c");
+      emit("push d");
+      if (a.isPointer)
+        a.address = eval(call->args[2]);
+      if (b.isPointer)
+        b.address = eval(call->args[3]);
+      emit("pop d");
+      emit("pop c");
+      emit("pop b");
+      emit("pop a");
+    }
+
+    auto loadPointer = [&](const Operand &operand, int reg) {
+      if (!operand.isPointer)
+        return;
+      if (reg == 0) {
+        emit("push b");
+        emit("push c");
+        emit("push d");
+      } else {
+        emit("push c");
+        emit("push d");
+      }
+      dynamicAddress(operand.address);
+      emit(std::string("rdm ") + "abcd"[reg]);
+      emit("pop d");
+      emit("pop c");
+      if (reg == 0)
+        emit("pop b");
+    };
+    loadPointer(a, 0);
+    loadPointer(b, 1);
+
+    std::uint8_t encoded = 0;
+    try {
+      if (named)
+        encoded = encodeInstruction(mnemonic, first, second);
+      else
+        encoded = static_cast<std::uint8_t>((opcode << 4) | (first << 2) |
+                                            second);
+    } catch (const std::exception &error) {
+      fail(error.what());
+    }
+    emit("db " + std::to_string(encoded));
+    if (bytePayload >= 0)
+      emit("db " + std::to_string(bytePayload));
+
+    if (a.isPointer) {
+      // Preserve the result in a and the post-instruction b/c:d state while
+      // storing through the pointer captured above.
+      emit("push b");
+      emit("push c");
+      emit("push d");
+      dynamicAddress(a.address);
+      emit("wrm a");
+      emit("pop d");
+      emit("pop c");
+      emit("pop b");
+    }
+  }
+  void subInstruction(Ex call) {
+    if (call->args.size() != 3)
+      fail("_sub_inst expects an opcode and a pointer operand");
+
+    Ex pointerExpression = call->args[2];
+    Ty pointerType = decay(typeOf(pointerExpression));
+    if (pointerType->kind != Type::Pointer ||
+        pointerType->base->size() != 1 || !numeric(pointerType->base))
+      fail("_sub_inst operand must point to a one-byte integer");
+
+    const auto hasRegisterOperand = [](unsigned opcode, unsigned subop) {
+      return opcode == 0x7 || opcode == 0xc ||
+             (opcode == 0x8 && subop >= 1) ||
+             (opcode == 0xd && subop <= 1) ||
+             (opcode == 0xe && subop <= 1) ||
+             (opcode == 0xf && subop <= 1);
+    };
+
+    std::uint8_t encoded = 0;
+    Ex opcodeExpression = call->args[1];
+    if (opcodeExpression->kind == Expr::StringLiteral) {
+      std::string mnemonic = opcodeExpression->text;
+      std::transform(mnemonic.begin(), mnemonic.end(), mnemonic.begin(),
+                     [](unsigned char c) {
+                       return static_cast<char>(std::tolower(c));
+                     });
+      try {
+        encoded = encodeSubInstruction(mnemonic, 0);
+      } catch (const std::exception &error) {
+        fail(error.what());
+      }
+    } else {
+      long long value;
+      if (!immediateInteger(opcodeExpression, value) || value < 0 ||
+          value > 255)
+        fail("_sub_inst opcode must be a mnemonic string or a number in 0..255");
+
+      unsigned opcode = 0, subop = 0;
+      if (value <= 15) {
+        // Match _inst's numeric primary-opcode form. Grouped primary opcodes
+        // select sub-operation zero when no packed selector is supplied.
+        opcode = static_cast<unsigned>(value);
+      } else if (value <= 63) {
+        // Pack the primary opcode and sub-operation into the six opcode bits.
+        opcode = static_cast<unsigned>(value) >> 2;
+        subop = static_cast<unsigned>(value) & 3;
+      } else {
+        // Also accept an instruction-byte prefix with register bits set to 0.
+        if ((value & 3) != 0)
+          fail("_sub_inst numeric instruction bytes must have register bits 0");
+        opcode = static_cast<unsigned>(value) >> 4;
+        subop = (static_cast<unsigned>(value) >> 2) & 3;
+      }
+      if (!hasRegisterOperand(opcode, subop))
+        fail("_sub_inst numeric opcode does not select a register sub-operation");
+      encoded = static_cast<std::uint8_t>((opcode << 4) | (subop << 2));
+    }
+
+    const unsigned opcode = encoded >> 4;
+    const unsigned subop = (encoded >> 2) & 3;
+    if (!hasRegisterOperand(opcode, subop))
+      fail("_sub_inst requires a sub-operation with a register operand");
+
+    // Evaluate and retain the pointee address while leaving the CPU state that
+    // the sub-operation sees intact.
+    emit("push a");
+    emit("push b");
+    emit("push c");
+    emit("push d");
+    Value address = eval(pointerExpression);
+    emit("pop d");
+    emit("pop c");
+    emit("pop b");
+    emit("pop a");
+
+    // Bind the pointer's byte to register a. Grouped operations encode their
+    // register in the low two bits, so the opcode prefix above targets a.
+    emit("push b");
+    emit("push c");
+    emit("push d");
+    dynamicAddress(address);
+    emit("rdm a");
+    emit("pop d");
+    emit("pop c");
+    emit("pop b");
+
+    emit("db " + std::to_string(encoded));
+    // IN/OUT and LDI/ADI fetch one payload byte after the grouped instruction.
+    // This single-operand intrinsic uses channel/immediate zero.
+    if (opcode == 0xd || opcode == 0xf)
+      emit("db 0");
+
+    // The register is read-write from the compiler's point of view. Preserve
+    // the post-instruction register/address state while writing it back.
+    emit("push b");
+    emit("push c");
+    emit("push d");
+    dynamicAddress(address);
+    emit("wrm a");
+    emit("pop d");
+    emit("pop c");
+    emit("pop b");
   }
   void inlineAssembly(const St &s) {
     struct Operand {
@@ -1174,7 +1509,8 @@ public:
       fail("origin outside 16-bit address space");
     int returnSize = 1;
     for (const auto &f : unit.functions) {
-      if (frames.count(f.name) || f.name == "_putchar" || f.name == "_halt")
+      if (frames.count(f.name) || f.name == "_putchar" || f.name == "_halt" ||
+          f.name == "_inst" || f.name == "_sub_inst")
         fail("duplicate or reserved function '" + f.name + "'");
       frames[f.name].fn = &f;
       returnSize = std::max(returnSize, f.result->size());

@@ -347,6 +347,97 @@ int main(){
 uint result=9;
 int main(){ _asm("inc %0" : "+a"(result)); _halt(); }
 )", {{"result", 10}});
+  runCase("_inst mnemonic with pointer operands", R"(
+uint result;
+int main(){ uint left=40, right=2; uint *left_ptr=&left, *right_ptr=&right;
+ _inst("add", left_ptr, right_ptr);
+ result=left; _halt(); }
+)", {{"result", 42}});
+  runCase("_inst numeric opcode with pointer operands", R"(
+uint result;
+int main(){ uint left=40, right=2; _inst(1, &left, &right);
+ result=left; _halt(); }
+)", {{"result", 42}});
+  runCase("_inst grouped mnemonic and immediate payload", R"(
+uint result;
+int main(){ uint value; _inst("ldi", &value, 40);
+ _inst("adi", &value, 2); result=value; _halt(); }
+)", {{"result", 42}});
+  runCase("_inst single-register read-write", R"(
+uint result;
+int main(){ uint value=41; _inst("inc", &value, 0);
+ result=value; _halt(); }
+)", {{"result", 42}});
+  runCase("_sub_inst mnemonic pointer read-write", R"(
+uint result;
+int main(){ uint value=41; uint *pointer=&value; _sub_inst("inc", pointer);
+ result=value; _halt(); }
+)", {{"result", 42}});
+  runCase("_sub_inst preserves the other register", R"(
+uint result;
+int main(){ uint value=40; _inst("ldi", 1, 2); _sub_inst("inc", &value);
+ _inst("add", &value, 1); result=value; _halt(); }
+)", {{"result", 43}});
+  runCase("_sub_inst numeric primary and packed opcodes", R"(
+uint result;
+int main(){ uint value=41; _sub_inst(7, &value); _sub_inst(29, &value);
+ _sub_inst(0x70, &value); _sub_inst(0x74, &value); result=value; _halt(); }
+)", {{"result", 41}});
+  runCase("_sub_inst stack operations read and write back", R"(
+uint result;
+int main(){ uint value=41; _sub_inst("push", &value); _sub_inst("ldo", &value);
+ _sub_inst("pop", &value); result=value; _halt(); }
+)", {{"result", 41}});
+  runCase("_sub_inst conditional zero branch", R"(
+int result;
+int main(){ uint condition=0; _asm { :skip }
+ _sub_inst("jz", &condition); result=1; _asm { .skip }
+ result+=2; _halt(); }
+)", {{"result", 2}});
+  runCase("_sub_inst conditional nonzero branch", R"(
+int result;
+int main(){ uint condition=1; _asm { :skip }
+ _sub_inst("jnz", &condition); result=1; _asm { .skip }
+ result+=2; _halt(); }
+)", {{"result", 2}});
+  runCase("_sub_inst memory read and write", R"(
+uint result;
+int main(){ uint source=65; _asm { :target }
+ _sub_inst("wrm", &source); _sub_inst("rdm", &result); _halt();
+ _asm { .target
+   db 0
+ }
+}
+)", {{"result", 65}});
+  runCase("_sub_inst immediate sub-operation payload", R"(
+uint result;
+int main(){ uint value=41; _sub_inst("ldi", &value); result=value; _halt(); }
+)", {{"result", 0}});
+  {
+    Image im = build(R"(
+int main(){ uint value=65; _sub_inst("out", &value); _halt(); }
+)");
+    Machine m;
+    m.run(im);
+    check(m.output == "A", "_sub_inst emits a zero I/O channel payload");
+    emitImage("sub_inst_io_payload", im, {}, "A");
+    std::cout << "[ok] _sub_inst I/O sub-operation payload\n";
+  }
+  runCase("_inst preserves the other register around pointer load", R"(
+uint result;
+int main(){ uint value=40; _inst("ldi", 1, 2);
+ _inst("add", &value, 1); result=value; _halt(); }
+)", {{"result", 42}});
+  {
+    Image im = build(R"(
+int main(){ uint value; _inst("ldi", &value, 65); _inst("out", &value, 0);
+ _halt(); }
+)");
+    Machine m;
+    m.run(im);
+    check(m.output == "A", "_inst I/O mnemonic and channel payload");
+    std::cout << "[ok] _inst I/O mnemonic and channel payload\n";
+  }
   runCase("signed division and remainder", R"(
 int quotient, remainder, result;
 int main(){ int n=-17; quotient=n/5; remainder=n%5; result=quotient*10+remainder; _halt(); }
@@ -461,6 +552,20 @@ void failureTests() {
       "origin 8; int main(){_halt();}",       // old origin keyword
       "int main(){ uint x; _asm(\"mov a, %0\" : \"=c\"(x)); _halt(); }",
       "int main(){ uint x; _asm(\"mov a, %1\" : \"=a\"(x)); _halt(); }",
+      "int main(){ _inst(16, 0, 0); _halt(); }", // invalid opcode number
+      "int main(){ _inst(1, 4, 0); _halt(); }",  // invalid register field
+      "int main(){ _inst(13, 0, 0); _halt(); }", // raw I/O needs a payload
+      "int main(){ _inst(\"io\", 0, 0); _halt(); }", // raw mnemonic needs payload
+      "int main(){ int x; _inst(7, &x, 0); _halt(); }", // selector field
+      "int main(){ _inst(\"missing\", 0, 0); _halt(); }", // unknown mnemonic
+      "int main(){ _inst(1, 0); _halt(); }",             // wrong arity
+      "int main(){ uint x; _sub_inst(\"inc\", x); _halt(); }", // requires pointer
+      "int main(){ uint x; _sub_inst(\"inc\", &x, 0); _halt(); }", // wrong arity
+      "int main(){ uint x; _sub_inst(\"jmp\", &x); _halt(); }", // no register field
+      "int main(){ uint x; _sub_inst(\"add\", &x); _halt(); }", // primary op
+      "int main(){ uint x; _sub_inst(1, &x); _halt(); }", // not a grouped operation
+      "int main(){ uint x; _sub_inst(0x71, &x); _halt(); }", // register bits in numeric byte
+      "int main(){ uint x; _sub_inst(\"missing\", &x); _halt(); }", // unknown sub-op
   };
   for (size_t i = 0; i < bad.size(); ++i) {
     bool failed = false;

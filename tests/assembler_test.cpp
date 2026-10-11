@@ -88,6 +88,29 @@ void instruction_encodings() {
     }
   }
 
+  constexpr Op registerSubs[] = {
+      {"inc", 0x70}, {"dec", 0x74}, {"adc", 0x78}, {"sbc", 0x7c},
+      {"jz", 0x84},  {"jnz", 0x88}, {"jc", 0x8c},  {"rdm", 0xc0},
+      {"wrm", 0xc4}, {"pop", 0xc8}, {"push", 0xcc}, {"in", 0xd0},
+      {"out", 0xd4}, {"ldo", 0xe0}, {"rnd", 0xe4}, {"ldi", 0xf0},
+      {"adi", 0xf4},
+  };
+  for (const auto &op : registerSubs) {
+    const auto got = mupc::encodeSubInstruction(op.name, 0);
+    same({got}, {static_cast<std::uint8_t>(op.opcode)},
+         std::string("sub-operation encoding for ") + op.name);
+    same({mupc::encodeSubInstruction(op.name, 3)},
+         {static_cast<std::uint8_t>(op.opcode | 3)},
+         std::string("sub-operation register field for ") + op.name);
+  }
+  bool rejected = false;
+  try {
+    (void)mupc::encodeSubInstruction("add", 0);
+  } catch (const std::exception &) {
+    rejected = true;
+  }
+  check(rejected, "primary operation is rejected by sub-operation encoder");
+
   same(mupc::assemble("MOV d,c\nINC b\nJNZ d\n").bytes, {0x0e, 0x71, 0x8b},
        "mixed case and multi-line instructions");
   same(mupc::assemble("ldi a\ndb 65\nadi b\ndb 2\n").bytes, {0xf0, 65, 0xf5, 2},

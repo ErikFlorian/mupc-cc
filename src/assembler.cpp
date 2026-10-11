@@ -39,6 +39,20 @@ const std::map<std::string, InstDef> &instructions() {
   return table;
 }
 
+std::string lower(std::string s);
+
+std::uint8_t encodeInstructionInternal(const std::string &mnemonic,
+                                       unsigned first, unsigned second) {
+  if (first > 3 || second > 3)
+    throw std::runtime_error("instruction operands must be in the range 0..3");
+  const auto found = instructions().find(lower(mnemonic));
+  if (found == instructions().end())
+    throw std::runtime_error("unknown instruction mnemonic: " + mnemonic);
+  const auto &def = found->second;
+  const unsigned op1 = def.sub ? def.subop : first;
+  return static_cast<std::uint8_t>((def.opcode << 4) | (op1 << 2) | second);
+}
+
 struct Token {
   enum Kind { Word, Number, String, Character, Label, Reference, Comma } kind;
   std::string text;
@@ -246,6 +260,23 @@ std::vector<std::uint8_t> data_token(const Token &token) {
 }
 
 } // namespace
+
+std::uint8_t encodeInstruction(const std::string &mnemonic, unsigned first,
+                               unsigned second) {
+  return encodeInstructionInternal(mnemonic, first, second);
+}
+
+std::uint8_t encodeSubInstruction(const std::string &mnemonic,
+                                  unsigned reg) {
+  if (reg > 3)
+    throw std::runtime_error("instruction register must be in the range 0..3");
+  const auto found = instructions().find(lower(mnemonic));
+  if (found == instructions().end())
+    throw std::runtime_error("unknown instruction mnemonic: " + mnemonic);
+  if (!found->second.sub)
+    throw std::runtime_error("instruction is not a sub-operation: " + mnemonic);
+  return encodeInstructionInternal(mnemonic, 0, reg);
+}
 
 Image assemble(const std::string &source) {
   const auto tokens = lex(source);

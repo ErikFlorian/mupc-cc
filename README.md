@@ -47,7 +47,7 @@ The language supports:
 - Decimal, `0b` binary, and `0x` hexadecimal integer literals; negative expressions; escaped string and character literals.
 - Inline MuPC assembly with GCC-style operands, the `_origin` directive, and `#include`, `#define`, `#undef`, `#if`, `#ifdef`, `#ifndef`, `#else`, `#elif`, and `#endif`.
 
-The preprocessor is intentionally smaller than the C preprocessor; see [docs/language.md](docs/language.md) for details and limitations. The built-ins are `_putchar(value)` and `_halt()`. `_putchar` emits the low byte through the emulator’s output instruction, while `_halt` shuts down the CPU. No headers are needed for these built-ins.
+The preprocessor is intentionally smaller than the C preprocessor; see [docs/language.md](docs/language.md) for details and limitations. The built-ins are `_putchar(value)`, `_halt()`, `_inst(opcode, a, b)`, and `_sub_inst(opcode, a)`. `_putchar` emits the low byte through the emulator’s output instruction, `_halt` shuts down the CPU, `_inst` emits one machine instruction, and `_sub_inst` emits one grouped sub-operation using a variable-backed register. No headers are needed for these built-ins.
 
 ## Example
 

@@ -71,6 +71,10 @@ The architecture has no native stack-frame or call instruction. The compiler emi
 
 The generated code reserves RAM for globals and compiler state. Avoid hard-coding RAM addresses in programs or inline assembly; use compiler-managed source variables instead. Values crossing operations are spilled to RAM. Integer-valued results, including `sizeof`, occupy one byte; a computed size above 255 wraps according to the 8-bit result type. The one-byte result follows from the language type model.
 
+The `_inst(opcode, a, b)` intrinsic emits one encoded instruction byte. A mnemonic string uses the assembler's opcode table; a numeric opcode supplies the high nibble directly. Variable pointers in its operands are copied through the general-purpose registers, with the first pointer written back after the instruction. See the [language guide](language.md#built-ins) for operand rules, grouped mnemonics, and immediate payloads.
+
+The `_sub_inst(opcode, a)` intrinsic emits one grouped sub-operation with register `a` bound to the byte at the supplied pointer. The compiler loads the pointed-to byte before the instruction and stores register `a` back afterward, preserving the other register and `c:d` state around address calculation. Grouped op names include `inc`/`dec`/`adc`/`sbc`, `jmp`/`jz`/`jnz`/`jc`, `rdm`/`wrm`/`pop`/`push`, `in`/`out`, `ldo`/`rnd`/`sdw`/`rbt`, and `ldi`/`adi`; operations without a register operand (`jmp`, `sdw`, and `rbt`) cannot be used by this intrinsic. The CPU encoding and numeric opcode forms are detailed in the [language guide](language.md#built-ins).
+
 ## Assembly syntax
 
 The embedded assembler follows the same basic syntax as the upstream [`mupc-asm`](https://github.com/DanielDe8/mupc-asm), with the CPU operation definitions from [`mupc-emu`](https://github.com/danielde8/mupc-emu):
