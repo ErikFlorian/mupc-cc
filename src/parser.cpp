@@ -830,12 +830,40 @@ struct Parser {
       need(";");
       return s;
     }
-    if (eat("asm")) {
+    if (eat("_asm")) {
       S s = stmt(Stmt::Asm, t.loc);
       if (eat("(")) {
         if (tok().kind != Token::String)
-          fail("asm(...) expects a string literal");
+          fail("_asm(...) expects a string literal");
         s->text = decode(take());
+        if (eat(":")) {
+          auto operands = [&](std::vector<AsmOperand> &out) {
+            if (is(":") || is(")"))
+              return;
+            do {
+              if (tok().kind != Token::String)
+                fail("inline assembly operands require a constraint string");
+              std::string constraint = decode(take());
+              need("(");
+              Ex expression = expr();
+              need(")");
+              out.push_back({std::move(constraint), std::move(expression)});
+            } while (eat(","));
+          };
+          operands(s->asmOutputs);
+          if (eat(":")) {
+            operands(s->asmInputs);
+            if (eat(":")) {
+              if (!is(")")) {
+                do {
+                  if (tok().kind != Token::String)
+                    fail("inline assembly clobbers must be string literals");
+                  s->asmClobbers.push_back(decode(take()));
+                } while (eat(","));
+              }
+            }
+          }
+        }
         need(")");
       } else if (eat("{")) {
         int depth = 1;
@@ -870,7 +898,7 @@ struct Parser {
           haveToken = true;
         }
       } else
-        fail("expected '(' or '{' after asm");
+        fail("expected '(' or '{' after _asm");
       eat(";");
       return s;
     }
@@ -887,10 +915,10 @@ struct Parser {
     return s;
   }
   void top() {
-    if (eat("origin")) {
+    if (eat("_origin")) {
       Token t = take();
       if (t.kind != Token::Number)
-        throw Error(t.loc, "origin expects an integer address");
+        throw Error(t.loc, "_origin expects an integer address");
       unit.origin = numberRaw(t);
       need(";");
       return;

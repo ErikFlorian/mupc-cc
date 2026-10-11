@@ -67,6 +67,10 @@ void emitImage(const std::string &name, const Image &im,
     f << output;
   }
   {
+    std::ofstream f(dir / (name + ".origin"));
+    f << im.loadAddress << "\n";
+  }
+  {
     std::ofstream f(dir / "manifest", std::ios::app);
     f << name << "\n";
   }
@@ -81,8 +85,11 @@ struct Machine {
   static int8_t s8(uint8_t x) { return static_cast<int8_t>(x); }
   uint16_t address() const { return uint16_t((uint16_t(r[2]) << 8) | r[3]); }
   void run(const Image &im, uint32_t limit = 2000000) {
-    check(im.bytes.size() <= mem.size(), "image exceeds 64K");
-    std::copy(im.bytes.begin(), im.bytes.end(), mem.begin());
+    check(im.loadAddress >= 0 &&
+              static_cast<size_t>(im.loadAddress) + im.bytes.size() <= mem.size(),
+          "image exceeds 64K");
+    std::copy(im.bytes.begin(), im.bytes.end(), mem.begin() + im.loadAddress);
+    pc = static_cast<uint16_t>(im.loadAddress);
     for (uint32_t step = 0; step < limit && !halted; ++step) {
       uint8_t ins = mem[pc], op = ins >> 4, a = (ins >> 2) & 3, b = ins & 3;
       auto jump = [&] { target = address(); };
@@ -310,6 +317,36 @@ void focusedTests() {
     emitImage("output_capture", im, {}, "OK");
     std::cout << "[ok] output capture\n";
   }
+  {
+    Image im = build(R"(
+int main(){
+  _asm {
+    ldi a
+    db 65
+    out a
+    db 0
+  }
+  _halt();
+}
+)");
+    Machine m;
+    m.run(im);
+    check(m.output == "A", "_asm block syntax output");
+    std::cout << "[ok] _asm block syntax\n";
+  }
+  runCase("inline assembly input and output operands", R"(
+uint result;
+int main(){
+  uint value=40;
+  _asm("mov a, %1\nadi a\ndb %2\nmov %0, a"
+       : "=b"(result) : "a"(value), "i"(2) : "cc", "memory");
+  _halt();
+}
+)", {{"result", 42}});
+  runCase("inline assembly read-write operand", R"(
+uint result=9;
+int main(){ _asm("inc %0" : "+a"(result)); _halt(); }
+)", {{"result", 10}});
   runCase("signed division and remainder", R"(
 int quotient, remainder, result;
 int main(){ int n=-17; quotient=n/5; remainder=n%5; result=quotient*10+remainder; _halt(); }
@@ -389,14 +426,22 @@ int main(){ struct Grid g={{{3},{4}},5};
  result=g.cell[0][0]+2*g.cell[0][1]+4*g.cell[1][0]+8*g.cell[1][1]+g.tail; _halt(); }
 )",
           {{"result", 24}});
-  // Alternate origin forces a 16-bit start and validates the assembler's
-  // startup jump as well as the compiler's high-byte address handling.
+  // Alternate origin validates the flat-image load address and high-byte
+  // address handling without a compiler-generated bootstrap jump.
   runCase("nonzero origin", R"(
-origin 0x1234;
+_origin 0x1234;
 int result;
 int main(){ result=73; _halt(); }
 )",
           {{"result", 73}});
+  {
+    Image im = build("_origin 1; int main(){ _halt(); }");
+    check(im.loadAddress == 1, "_origin sets the binary load address");
+    check(im.bytes.size() > 4 && im.bytes.front() == 0xf2 &&
+              im.bytes[4] == 0x02,
+          "nonzero origin begins with entry setup and has no bootstrap jump");
+    std::cout << "[ok] origin has no bootstrap jump\n";
+  }
 }
 void failureTests() {
   const std::vector<std::string> bad = {
@@ -412,6 +457,10 @@ void failureTests() {
       "struct Missing object; int main(){_halt();}",        // incomplete object
       "int f(int x){int x;return 0;} int main(){_halt();}", // parameter
                                                            // redeclaration
+      "int main(){ asm { ldo a } _halt(); }", // old asm block keyword
+      "origin 8; int main(){_halt();}",       // old origin keyword
+      "int main(){ uint x; _asm(\"mov a, %0\" : \"=c\"(x)); _halt(); }",
+      "int main(){ uint x; _asm(\"mov a, %1\" : \"=a\"(x)); _halt(); }",
   };
   for (size_t i = 0; i < bad.size(); ++i) {
     bool failed = false;
@@ -441,7 +490,7 @@ int main() {
     // call frames, recursion, control flow, arrays, structs, pointers and goto.
     // Intermediate arithmetic must survive calls because only r0/r1 are free.
     const char *program = R"(
-origin 0;
+_origin 0;
 #define TWICE(x) ((x) * 2)
 #define ENABLED 1
 #ifdef ENABLED
@@ -456,7 +505,7 @@ int wide[260];
 int fact(int n) { if (n <= 1) return 1; return n * fact(n - 1); }
 int sum(int a, int b) { return a + b; }
 int main() {
-  asm("mov a, a");
+  _asm("mov a, a");
   int x = 0b00000111; uint u = 0xff; int neg = -3;
   int values[4] = {1,2,3,4}; struct Pair p = {5,6};
   int *q = &values[0];

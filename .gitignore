@@ -3,3 +3,4 @@
 *.bin
 *.asm
 *.map
+.DS_Store

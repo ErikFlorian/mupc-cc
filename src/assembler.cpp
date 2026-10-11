@@ -331,42 +331,48 @@ Image assemble(const std::string &source) {
   }
 
   Image image;
+  bool hasOrigin = false;
+  for (const auto &node : nodes)
+    if (node.kind == Node::Origin) {
+      if (hasOrigin)
+        throw std::runtime_error("org may only appear once");
+      hasOrigin = true;
+      image.loadAddress = node.origin;
+    }
+
   std::size_t cursor = 0;
+  std::size_t byteCount = 0;
   for (const auto &node : nodes) {
     switch (node.kind) {
     case Node::Label:
-      if (cursor > 65535)
+      if (static_cast<std::size_t>(image.loadAddress) + cursor > 65535)
         throw std::runtime_error(
             "label address is outside the 16-bit address space: " + node.name);
-      if (!image.symbols.emplace(node.name, static_cast<int>(cursor)).second)
+      if (!image.symbols
+               .emplace(node.name,
+                        static_cast<int>(image.loadAddress + cursor))
+               .second)
         throw std::runtime_error("duplicate label: " + node.name);
       break;
     case Node::Origin:
-      if (static_cast<std::size_t>(node.origin) < cursor)
-        throw std::runtime_error(
-            "org moves backwards into already emitted data");
-      cursor = static_cast<std::size_t>(node.origin);
       break;
     default:
-      if (node.size > 65536 || cursor + node.size > 65536)
+      if (node.size > 65536 ||
+          static_cast<std::size_t>(image.loadAddress) + cursor + node.size >
+              65536 ||
+          byteCount + node.size > 65536)
         throw std::runtime_error("assembly exceeds 65536-byte address space");
       cursor += node.size;
+      byteCount += node.size;
       break;
     }
   }
-  image.bytes.reserve(cursor);
-  cursor = 0;
+  image.bytes.reserve(byteCount);
   for (const auto &node : nodes) {
     if (node.kind == Node::Label)
       continue;
-    if (node.kind == Node::Origin) {
-      if (static_cast<std::size_t>(node.origin) < image.bytes.size())
-        throw std::runtime_error(
-            "org moves backwards into already emitted data");
-      image.bytes.resize(static_cast<std::size_t>(node.origin), 0);
-      cursor = image.bytes.size();
+    if (node.kind == Node::Origin)
       continue;
-    }
     if (node.kind == Node::Instruction) {
       unsigned a = node.sub ? node.subop : node.r1;
       unsigned b = node.sub ? node.r1 : node.r2;
@@ -387,7 +393,6 @@ Image assemble(const std::string &source) {
     } else {
       image.bytes.insert(image.bytes.end(), node.data.begin(), node.data.end());
     }
-    cursor = image.bytes.size();
   }
   return image;
 }

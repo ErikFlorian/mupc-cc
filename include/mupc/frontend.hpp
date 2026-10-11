@@ -71,6 +71,10 @@ struct Expr {
   std::vector<std::shared_ptr<Expr>> args;
 };
 using Ex = std::shared_ptr<Expr>;
+struct AsmOperand {
+  std::string constraint;
+  Ex expression;
+};
 struct Decl {
   Location loc;
   std::string name;
@@ -101,6 +105,9 @@ struct Stmt {
   std::vector<std::shared_ptr<Stmt>> children;
   std::vector<Ex> exprs;
   std::vector<Decl> decls;
+  std::vector<AsmOperand> asmOutputs;
+  std::vector<AsmOperand> asmInputs;
+  std::vector<std::string> asmClobbers;
 };
 using St = std::shared_ptr<Stmt>;
 struct Function {

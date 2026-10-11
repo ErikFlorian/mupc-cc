@@ -32,7 +32,7 @@ Assemble MuPC assembly directly:
 build/mupc-cc --assemble hello.asm -o hello.bin
 ```
 
-Use `mupc-cc --help` for all options and `mupc-cc --version` for the version. `--origin ADDRESS` overrides the source `origin ADDRESS;` directive.
+Use `mupc-cc --help` for all options and `mupc-cc --version` for the version. `--origin ADDRESS` overrides the source `_origin ADDRESS;` directive.
 
 ## Language features
 
@@ -45,7 +45,7 @@ The language supports:
 - Arithmetic, comparisons, bitwise and logical operators, assignments, increments, and `sizeof`.
 - `if`/`else`, `while`, `do`/`while`, `for`, `break`, `continue`, labels, and `goto`.
 - Decimal, `0b` binary, and `0x` hexadecimal integer literals; negative expressions; escaped string and character literals.
-- Inline MuPC assembly, the `origin` directive, and `#include`, `#define`, `#undef`, `#if`, `#ifdef`, `#ifndef`, `#else`, `#elif`, and `#endif`.
+- Inline MuPC assembly with GCC-style operands, the `_origin` directive, and `#include`, `#define`, `#undef`, `#if`, `#ifdef`, `#ifndef`, `#else`, `#elif`, and `#endif`.
 
 The preprocessor is intentionally smaller than the C preprocessor; see [docs/language.md](docs/language.md) for details and limitations. The built-ins are `_putchar(value)` and `_halt()`. `_putchar` emits the low byte through the emulator’s output instruction, while `_halt` shuts down the CPU. No headers are needed for these built-ins.
 
@@ -79,7 +79,7 @@ An instruction byte is composed of a 4-bit opcode and two 2-bit register fields.
 
 The compiler emits its own call and return sequences because MuPC has no native call instruction. Function slots and expression temporaries use fixed RAM addresses. Recursive calls save frame bytes on the hardware stack but reuse the same RAM locations for that function’s locals; a pointer to one activation’s local can therefore refer to a deeper activation’s reused slot. See the [language guide](docs/language.md) for this and other target-specific limits.
 
-`origin N;` puts a bootstrap jump at address zero and places the compiled program at `N`. Assembly `org N` is a separate assembler location directive. Arrays and structs are contiguous and have no padding. In compiler-managed RAM, pointers are stored low byte first; assembly `dw` emits a big-endian word.
+`_origin N;` works like NASM's `org N`: it sets the program's load and execution address without adding a bootstrap jump. The flat binary starts with the first instruction, so load it at `N` and start execution there. Arrays and structs are contiguous and have no padding. In compiler-managed RAM, pointers are stored low byte first; assembly `dw` emits a big-endian word.
 
 ## Upstream emulator address bug
 

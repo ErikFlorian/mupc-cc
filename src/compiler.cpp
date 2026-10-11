@@ -1,6 +1,8 @@
 #include "mupc/compiler.hpp"
 #include <algorithm>
+#include <cctype>
 #include <functional>
+#include <limits>
 #include <set>
 #include <sstream>
 namespace mupc {
@@ -887,6 +889,150 @@ class Generator {
     scopes.back()[d.name] = v;
     initializer(v, d);
   }
+  void inlineAssembly(const St &s) {
+    struct Operand {
+      int reg = -1;
+      bool readWrite = false;
+      bool immediate = false;
+      int immediateValue = 0;
+      Value value;
+    };
+    const auto regName = [](int reg) { return std::string(1, "abcd"[reg]); };
+    std::vector<Operand> outputs, inputs;
+    bool usedRegs[2] = {false, false};
+    auto bind = [&](const AsmOperand &operand, bool output) {
+      std::string constraint = operand.constraint;
+      bool readWrite = false;
+      if (output) {
+        if (constraint.empty() ||
+            (constraint[0] != '=' && constraint[0] != '+'))
+          fail("inline assembly output constraint must start with '=' or '+'");
+        readWrite = constraint[0] == '+';
+        constraint.erase(constraint.begin());
+      }
+      Operand bound;
+      bound.readWrite = readWrite;
+      if (!output && constraint == "i") {
+        if (!operand.expression ||
+            operand.expression->kind != Expr::Literal ||
+            operand.expression->value < 0 || operand.expression->value > 255)
+          fail("inline assembly 'i' constraint requires a byte literal");
+        bound.immediate = true;
+        bound.immediateValue = operand.expression->value;
+        return bound;
+      }
+      int requested = -1;
+      if (constraint == "a")
+        requested = 0;
+      else if (constraint == "b")
+        requested = 1;
+      else if (constraint != "r")
+        fail("unsupported inline assembly constraint '" + operand.constraint +
+             "'");
+      if (requested < 0) {
+        for (int candidate = 0; candidate < 2; ++candidate)
+          if (!usedRegs[candidate]) {
+            requested = candidate;
+            break;
+          }
+        if (requested < 0)
+          fail("inline assembly needs more than two register operands");
+      }
+      if (usedRegs[requested])
+        fail("inline assembly operands cannot share register '" +
+             regName(requested) + "'");
+      usedRegs[requested] = true;
+      bound.reg = requested;
+      return bound;
+    };
+    for (const auto &operand : s->asmOutputs)
+      outputs.push_back(bind(operand, true));
+    for (const auto &operand : s->asmInputs)
+      inputs.push_back(bind(operand, false));
+
+    std::vector<Place> places;
+    for (size_t i = 0; i < s->asmOutputs.size(); ++i) {
+      Place p = place(s->asmOutputs[i].expression);
+      if (p.type->size() != 1 || !numeric(p.type))
+        fail("inline assembly outputs must be one-byte integer lvalues");
+      places.push_back(std::move(p));
+      if (outputs[i].readWrite)
+        outputs[i].value = read(places.back());
+    }
+    for (size_t i = 0; i < s->asmInputs.size(); ++i) {
+      if (inputs[i].immediate)
+        continue;
+      Value value = eval(s->asmInputs[i].expression);
+      if (value.cells.size() != 1 || !numeric(value.type))
+        fail("inline assembly register inputs must be one-byte integers");
+      inputs[i].value = std::move(value);
+    }
+
+    std::vector<std::string> replacements;
+    replacements.reserve(outputs.size() + inputs.size());
+    for (size_t i = 0; i < outputs.size(); ++i) {
+      auto &operand = outputs[i];
+      if (operand.readWrite)
+        load(operand.value.cells[0], operand.reg);
+      replacements.push_back(regName(operand.reg));
+    }
+    for (const auto &operand : inputs) {
+      if (operand.immediate)
+        replacements.push_back(std::to_string(operand.immediateValue));
+      else {
+        load(operand.value.cells[0], operand.reg);
+        replacements.push_back(regName(operand.reg));
+      }
+    }
+    for (const auto &clobber : s->asmClobbers)
+      if (clobber != "a" && clobber != "b" && clobber != "c" &&
+          clobber != "d" && clobber != "cc" && clobber != "memory")
+        fail("unsupported inline assembly clobber '" + clobber + "'");
+
+    std::string expanded;
+    const std::string serial = std::to_string(seq++);
+    for (size_t i = 0; i < s->text.size();) {
+      if (s->text[i] != '%' || i + 1 == s->text.size()) {
+        expanded.push_back(s->text[i++]);
+        continue;
+      }
+      if (s->text[i + 1] == '%') {
+        expanded.push_back('%');
+        i += 2;
+      } else if (s->text[i + 1] == '=') {
+        expanded += serial;
+        i += 2;
+      } else if (std::isdigit(static_cast<unsigned char>(s->text[i + 1]))) {
+        size_t end = i + 1;
+        size_t index = 0;
+        while (end < s->text.size() &&
+               std::isdigit(static_cast<unsigned char>(s->text[end]))) {
+          const size_t digit = static_cast<unsigned>(s->text[end] - '0');
+          if (index > (std::numeric_limits<size_t>::max() - digit) / 10)
+            fail("inline assembly placeholder is out of range");
+          index = index * 10 + digit;
+          ++end;
+        }
+        if (index >= replacements.size())
+          fail("inline assembly placeholder is out of range");
+        expanded += replacements[index];
+        i = end;
+      } else {
+        expanded.push_back(s->text[i++]);
+      }
+    }
+    emit(expanded);
+
+    std::vector<Value> outputValues;
+    outputValues.reserve(outputs.size());
+    for (const auto &operand : outputs) {
+      Value saved = allocate(scalar(Type::UInt));
+      store(saved.cells[0], operand.reg);
+      outputValues.push_back(std::move(saved));
+    }
+    for (size_t i = 0; i < places.size(); ++i)
+      assign(std::move(places[i]), outputValues[i]);
+  }
   std::string userLabel(const std::string &n) {
     return "__user_" + current->fn->name + "_" + n;
   }
@@ -912,7 +1058,7 @@ class Generator {
     case Stmt::Empty:
       break;
     case Stmt::Asm:
-      emit(s->text);
+      inlineAssembly(s);
       break;
     case Stmt::If: {
       auto no = fresh(), done = fresh();
@@ -1059,12 +1205,8 @@ public:
       }
     }
     current = nullptr;
-    if (unit.origin) {
-      if (unit.origin < 5)
-        fail("nonzero origin must leave five bytes for the boot jump");
-      jump("__entry");
+    if (unit.origin)
       emit("org " + std::to_string(unit.origin));
-    }
     label("__entry");
     for (const auto &d : unit.globals)
       initializer(globals.at(d.name), d);

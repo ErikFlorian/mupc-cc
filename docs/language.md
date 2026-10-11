@@ -13,7 +13,7 @@ This guide describes the C-like source accepted by `mupc-cc`. It is intentionall
 | `struct Name` | Sum of its fields | Packed fields, no alignment padding |
 | `void` | 0 bytes | Function result / pointer target only |
 
-Integer operations ultimately use 8-bit CPU arithmetic. Results stored in integer objects keep their low byte. Ordinary integer literals used as values must fit in 8 bits; larger literal values are accepted as pointer-cast addresses, as array indices, and by `origin`. Pointer values are 16-bit addresses. An implicit signed `int`-to-pointer conversion sign-extends the byte; `uint`-to-pointer conversion zero-extends it. Explicit pointer-to-integer casts keep the low byte. `char` is an alias for `int`; character literals provide one byte and do not introduce a separate character type. There are no floats, long integers, unions, bit-fields, or standard library types.
+Integer operations ultimately use 8-bit CPU arithmetic. Results stored in integer objects keep their low byte. Ordinary integer literals used as values must fit in 8 bits; larger literal values are accepted as pointer-cast addresses, as array indices, and by `_origin`. Pointer values are 16-bit addresses. An implicit signed `int`-to-pointer conversion sign-extends the byte; `uint`-to-pointer conversion zero-extends it. Explicit pointer-to-integer casts keep the low byte. `char` is an alias for `int`; character literals provide one byte and do not introduce a separate character type. There are no floats, long integers, unions, bit-fields, or standard library types.
 
 Structs may contain fields and arrays of supported object types. Fields are packed in declaration order. Arrays and structs can be initialized with brace lists; omitted elements are zero-filled. A string literal is stored as its bytes followed by a zero byte. `sizeof` computes the byte size of a type or expression, then stores that result in a one-byte `uint`; sizes above 255 wrap modulo 256.
 
@@ -108,12 +108,23 @@ The preprocessor is intentionally small. It does not implement token pasting (`#
 
 ## Origin and inline assembly
 
-`origin N;` sets the C program body origin. At origin zero the program begins at address zero without a bootstrap jump. For a nonzero origin, generated startup code at address zero jumps to the body; the origin must be at least five so the bootstrap jump fits, and the full image must fit in the 16-bit address space.
+`_origin N;` works like NASM's `org N`: it sets the address used for labels and references and adds no startup jump. The output is a flat binary whose first byte is the first instruction; load it at address `N` and begin execution there. `--origin ADDRESS` overrides the source directive. The full image must fit in the 16-bit address space.
 
-Inline assembly accepts a string or a block. Use the string form for example `asm("ldi a\ndb 65\nout a\ndb 0");`. Block form preserves token spacing and line breaks. Assembly mnemonics are case-insensitive; registers are `a`, `b`, `c`, `d`. Assembly labels are `.name`, references are `:name`, data directives are `db` and `dw`, and `org` changes the assembly cursor. A semicolon starts an assembly comment.
+Inline assembly uses `_asm` with either a string template or a block. The string form accepts GCC-style output and input operands:
 
 ```c
-asm {
+uint result;
+uint value = 40;
+_asm("mov a, %1\nadi a\ndb %2\nmov %0, a"
+     : "=b"(result) : "a"(value), "i"(2) : "cc", "memory");
+```
+
+Outputs come first, followed by inputs; `%0`, `%1`, and so on refer to operands in that order. Use `=a`, `=b`, or `=r` for a write-only output and `+a`, `+b`, or `+r` for a read/write output. Inputs accept `a`, `b`, `r`, or `i`; `r` selects a free register from `a` and `b`, while `i` accepts a byte literal inserted into the template. Register operands and outputs must be one-byte integers, and outputs must be assignable lvalues. The optional clobber list accepts `a`, `b`, `c`, `d`, `cc`, and `memory`. The compiler does not preserve registers or analyze clobbers. `%%` inserts a literal percent sign and `%=` inserts a unique number.
+
+The block form preserves token spacing and line breaks:
+
+```c
+_asm {
     ldi a
     db 65
     out a
@@ -121,7 +132,7 @@ asm {
 }
 ```
 
-Inline assembly is raw. It can change all registers, the `c:d` address word, stack state, and control flow, so it must preserve any state needed by surrounding generated code. `asm("out a\ndb 0")` is only meaningful if `a` contains the desired byte at that point. The compiler does not perform register-clobber analysis or preserve registers around inline assembly; keep values in source variables when crossing an assembly block. Do not write to compiler-owned scratch or frame memory.
+Inline assembly is raw. It can change all registers, the `c:d` address word, stack state, and control flow, so it must preserve any state needed by surrounding generated code. `_asm("out a\ndb 0")` is only meaningful if `a` contains the desired byte at that point. Keep values in source variables when crossing an assembly block. Do not write to compiler-owned scratch or frame memory.
 
 ## Built-ins
 

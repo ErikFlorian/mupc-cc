@@ -102,22 +102,24 @@ void data_and_origins() {
   same(mupc::assemble("dw 0x1234\ndw 0b101\n").bytes, {0x12, 0x34, 0x00, 0x05},
        "16-bit words");
 
-  const auto image =
-      mupc::assemble("org 4\n.start\ndb 0x11\norg 8\n.end\ndb 0x22\n");
-  same(image.bytes, {0, 0, 0, 0, 0x11, 0, 0, 0, 0x22}, "org zero-fills gaps");
+  const auto image = mupc::assemble("org 4\n.start\ndb 0x11\n.end\ndb 0x22\n");
+  same(image.bytes, {0x11, 0x22}, "org does not add bytes to the flat image");
+  check(image.loadAddress == 4, "org sets the flat image load address");
   check(image.symbols.at("start") == 4, "label after org has absolute address");
-  check(image.symbols.at("end") == 8, "second org sets next absolute address");
+  check(image.symbols.at("end") == 5, "org offsets subsequent labels");
 }
 
 void labels_and_fixups() {
-  const auto image = mupc::assemble(":target\norg 0xfffd\n.target\nsdw\n");
+  const auto image =
+      mupc::assemble("org 0xfffa\n:target\n.target\nsdw\n");
   same({image.bytes[0], image.bytes[1], image.bytes[2], image.bytes[3]},
-       {0xf2, 0xff, 0xf3, 0xfd},
+       {0xf2, 0xff, 0xf3, 0xfe},
        "high-page label fixup includes address page ff");
-  check(image.symbols.at("target") == 0xfffd, "upper-page symbol address");
-  check(image.bytes.size() == 0xfffe,
-        "upper-page image extends through emitted byte");
-  check(image.bytes[0xfffd] == 0xe8, "sdw emitted at origin address");
+  check(image.symbols.at("target") == 0xfffe, "upper-page symbol address");
+  check(image.bytes.size() == 5,
+        "upper-page origin does not pad the flat image");
+  check(image.bytes[4] == 0xe8, "sdw follows the origin in the flat image");
+  check(image.loadAddress == 0xfffa, "high-page org sets the load address");
 
   const auto digit_name = mupc::assemble(":__tmp_42\n.__tmp_42\ndb 7\n");
   same(digit_name.bytes, {0xf2, 0x00, 0xf3, 0x04, 7},
@@ -130,7 +132,7 @@ void bad_inputs() {
   rejects("db 0x100\n", "hex byte overflow");
   rejects("dw 65536\n", "word data overflow");
   rejects("org 65536\n", "origin overflow");
-  rejects("org 2\ndb 1\norg 1\n", "backward origin");
+  rejects("org 2\ndb 1\norg 3\n", "repeated org");
   rejects(".again\n.again\n", "duplicate labels");
   rejects(":missing\n", "undefined labels");
   rejects("mov a,e\n", "invalid register");
