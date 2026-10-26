@@ -1,6 +1,6 @@
 # mupc-cc — pan_devecka
 
-`mupc-cc` is a C++17 compiler and assembler for the MuPC hobby 8-bit CPU. It compiles one C-like source translation unit directly to a flat memory image; there is no linker or standard library. The compiler is built around the machine’s four registers: `a` and `b` are the two general-purpose registers, while `c` and `d` form the shared 16-bit address word. Expression values and call-frame data are kept in RAM.
+`mupc-cc` is a C++17 compiler and assembler for the [MUPC hobby 8-bit CPU](https://github.com/danielde8/mupc/). It compiles one C-like source translation unit directly to a flat memory image; there is no linker or standard library. The compiler is built around the machine’s four registers: `a` and `b` are the two general-purpose registers, while `c` and `d` form the shared 16-bit address word. Expression values and call-frame data are kept in RAM.
 
 ## Build and run
 
